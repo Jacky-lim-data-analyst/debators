@@ -9,6 +9,7 @@ dependencies = [
     "httpx-sse>=0.4.3",
     "langchain>=1.2.9",
     "langchain-cerebras>=0.8.2",
+    "langchain-deepseek>=1.0.1",
     "langchain-google-genai>=4.2.0",
     "langchain-groq>=1.1.2",
     "langchain-ollama>=1.0.1",

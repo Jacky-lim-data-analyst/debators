@@ -4,6 +4,7 @@ import os
 import sys
 import requests
 from random import shuffle
+import json
 
 # Ensure the project root is on `sys.path` so imports like `from config import ...`
 # work when this script is run as a module or from different working directories.
@@ -79,9 +80,10 @@ class TavilyProvider:
         ]
     
 class SearXNGProvider:
-    def __init__(self, port: int | None = None):
+    def __init__(self, port: int | None = None, max_results: int = 10):
         if not port:
             self.port = SEARXNG_PORT
+        self.max_results = max_results   # not in use 
 
     def search(self, query: str, **kwargs) -> List[Dict[str, str]]:
         """Web search with locally hosted searXNG provider"""
@@ -275,7 +277,24 @@ def get_chained_search_provider(
         provider_chain=provider_chain,
         max_results=max_results,
         verbose=verbose
-    ) 
+    )
+
+@tool(description="web search tool")
+def perform_web_search_tool(query: str) -> str:
+    """Web search
+    Args:
+        query (str): search keyword to look for"""
+    chained_provider = get_chained_search_provider()
+    result = chained_provider.search(query)
+    return json.dumps(result)
+
+def perform_web_search(query: str) -> str:
+    """Web search
+    Args:
+        query (str): search keyword to look for"""
+    chained_provider = get_chained_search_provider()
+    result = chained_provider.search(query)
+    return json.dumps(result)
 
 if __name__ == "__main__":
     # load_dotenv()

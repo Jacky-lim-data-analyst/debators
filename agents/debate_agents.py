@@ -13,12 +13,18 @@ from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_ollama import ChatOllama
+from langchain.agents import create_agent
+
+# from langchain_deepseek import ChatDeepSeek
+from openai import OpenAI
 
 import os
 import sys
 import random
-from typing import List
 import logging
+from typing import List, Dict
+import json
+from tools.web_search import perform_web_search_tool, perform_web_search
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -33,7 +39,8 @@ class RotatingFallbackDebator:
     def __init__(self, 
                  temperature: float = 0.1, 
                  max_tokens: int = 4096,
-                 timeout: float = 10.0):
+                 timeout: float = 10.0
+        ):
         load_dotenv()
         connection_string = "http://" + SERVER_IP_ADDRESS + ":" + str(OLLAMA_PORT)
         # define all models
@@ -99,18 +106,112 @@ class RotatingFallbackDebator:
         # create chain with fallbacks
         return primary.with_fallbacks(fallbacks), shuffled_names
     
-    def invoke(self, prompt: str) -> str:
+    def invoke(self, prompt: Dict):
+        """Prompt is of the following format:
+        [
+            ("system", "..."),
+            ("human", "{topic}, {question}")
+        ]"""
         chain, model_order = self.get_chain_with_rotation()
 
+        agent = create_agent(chain, tools=[perform_web_search_tool], system_prompt="You are a helpful assistant")
+
         try:
-            response = chain.invoke(prompt)
-            return response.content
+            response = agent.invoke(prompt)
+            final_response = response['messages'][-1]
+            return final_response.content
         except Exception as e:
             logger.error(f"All models failed in order {model_order}: {str(e)}")
-            raise
+            return ""
+
+class SoloDebator:
+    """Debators from one model"""
+    def __init__(self, 
+                 api_key: str | None = None,
+                 temperature: float = 0.1,
+                 max_tokens: int = 4096,
+        ):
+        if api_key is None:
+            load_dotenv()
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+
+        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "perform_web_search",
+                    "description": "Search the web for latest information",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search keyword to get relevant information"
+                            },
+                        },
+                        "required": ["query"],
+                    },
+                }
+            },
+        ]
+        
+    def invoke(self, prompt: List[Dict[str, str]]):
+        try:
+            messages = prompt
+            # Use a loop to handle multiple tool turns
+            for _ in range(5):  # Limit to 5 turns to prevent infinite loops
+                response = self.client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=messages,
+                    stream=False,
+                    tools=self.tools,
+                    temperature=self.temperature
+                )
+
+                assistant_message = response.choices[0].message
+                messages.append(assistant_message)
+
+                # If there are no tool calls, this is the final answer
+                if not assistant_message.tool_calls:
+                    return assistant_message.content or ""
+
+                # Process ALL tool calls generated in this turn
+                for tool_call in assistant_message.tool_calls:
+                    function_name = tool_call.function.name
+                    arguments = json.loads(tool_call.function.arguments)
+                    
+                    if function_name == "perform_web_search":
+                        query = arguments.get("query")
+                        print(f"Executing search for: {query}")
+                        result = perform_web_search(query)
+                        
+                        # Append the tool result
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": str(result)
+                        })
+
+            return "Error: Maximum tool call depth reached."
+
+        except Exception as e:
+            logger.error(f"Model API requests error: {e}")
+            return ""
 
 if __name__ == "__main__":
     llm = RotatingFallbackDebator()
 
-    response = llm.invoke("What is the distance between Earth and Moon?")
+    response = llm.invoke({"messages": [{"role": "user", "content": "Who is the current American President?"}]})
     print(f"Response: {response}")
+    # load_dotenv()
+    # client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
+    # print(client.models.list())
+    # model = SoloDebator()
+    # print(model.invoke([
+    #     {"role": "system", "content": "You are a helpful assistant"},
+    #     {"role": "user", "content": "What is the current status of Artemis II project?"},
+    # ]))
+    # print(perform_web_search("Artemis II"))
