@@ -12,3 +12,6 @@ wheels/
 # secrets and config
 .env
 config.py
+
+# some other personal notes
+design_choice.md
