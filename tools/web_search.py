@@ -1,8 +1,9 @@
 from langchain.tools import tool
-from typing import List, Protocol, Dict
+from typing import List, Protocol, Dict, Literal, Type, Optional
 import os
 import sys
 import requests
+from random import shuffle
 
 # Ensure the project root is on `sys.path` so imports like `from config import ...`
 # work when this script is run as a module or from different working directories.
@@ -121,7 +122,7 @@ class WhoogleProvider:
             self.port = WHOOGLE_PORT
         self.max_results = max_results
 
-    def search(self, query: str, **kwargs):
+    def search(self, query: str, **kwargs) -> List[Dict[str, str]]:
         """Web search by whoogle"""
         params = {
             "q": query,
@@ -154,10 +155,132 @@ class WhoogleProvider:
             print(f"Whoogle error : {str(ex)}")
             return []
 
+class ChainedWebSearchProvider:
+    """Chain of responsibility pattern for web search providers.
+    Tries providers in order until one succeeds or all fail"""
+    def __init__(self,
+                 provider_chain: Optional[List[Literal['duckduckgo', 'tavily', 'searxng', 'whoogle']]] = None,
+                 max_results = 10,
+                 verbose: bool = True):
+        """Initialize the chained web search provider
+        
+        Args:
+            provider_chain: List of provider names in order of preference. 
+                          Defaults to ['duckduckgo', 'tavily', 'searxng', 'whoogle']
+            max_results: Maximum number of results to return
+            verbose: Whether to print status messages"""
+        if provider_chain is None:
+            provider_chain = ['duckduckgo', 'tavily', 'searxng', 'whoogle']
+            shuffle(provider_chain)
+
+        self.provider_chain = provider_chain
+        self.max_results = max_results
+        self.verbose = verbose
+        self._providers_cache: Dict[str, WebSearchProvider] = {}
+
+    def _get_provider_instance(self, provider_name: Literal['duckduckgo', 'tavily', 'searxng', 'whoogle']) -> WebSearchProvider:
+        """Get or create a provider instance with caching."""
+        if provider_name in self._providers_cache:
+            return self._providers_cache[provider_name]
+        
+        providers: Dict[str, Type[WebSearchProvider]] = {
+            'duckduckgo': DuckDuckGoProvider,
+            'tavily': TavilyProvider,
+            'searxng': SearXNGProvider,
+            'whoogle': WhoogleProvider
+        }
+        
+        provider_class = providers.get(provider_name, DuckDuckGoProvider)
+        provider_instance = provider_class(max_results=self.max_results)
+        self._providers_cache[provider_name] = provider_instance
+        
+        return provider_instance
+    
+    def search(self, query: str, **kwargs) -> List[Dict[str, str]]:
+        """
+        Search using the chain of providers. Falls back to next provider if current one fails.
+        
+        Args:
+            query: Search query string
+            **kwargs: Additional arguments passed to provider search methods
+            
+        Returns:
+            List of search results from the first successful provider
+            
+        Raises:
+            Exception: If all providers in the chain fail
+        """
+        last_exception = None
+
+        for provider_name in self.provider_chain:
+            try:
+                if self.verbose:
+                    print(f"Trying provider: {provider_name}")
+
+                provider = self._get_provider_instance(provider_name)
+                results = provider.search(query, **kwargs)
+
+                # checks if results are valid
+                if results:
+                    if self.verbose:
+                        print(f"✓ Successfully retrieved {len(results)} results from {provider_name}")
+                    return results
+                else:
+                    if self.verbose:
+                        print(f"✗ {provider_name} returned empty results, trying next provider...")
+
+            except Exception as e:
+                last_exception = e
+                if self.verbose:
+                    print(f"✗ {provider_name} failed with error: {str(e)}")
+                    print(f"  Falling back to next provider...")
+                continue
+
+        # all providers failed
+        error_msg = f"All providers in chain {self.provider_chain} failed."
+        if last_exception:
+            error_msg += f" Last error: {str(last_exception)}. Returning empty list"
+        if self.verbose:
+            print(error_msg)
+        return []
+        
+def get_ws_provider(provider_name: Literal['duckduckgo', 'tavily', 'searxng', 'whoogle']) ->  WebSearchProvider:
+    """Factory method"""
+    providers: Dict[str, Type[WebSearchProvider]] = {
+        'duckduckgo': DuckDuckGoProvider,
+        'tavily': TavilyProvider,
+        'searxng': SearXNGProvider,
+        'whoogle': WhoogleProvider
+    }
+
+    return providers.get(provider_name, DuckDuckGoProvider)()
+
+def get_chained_search_provider(
+    provider_chain: Optional[List[Literal['duckduckgo', 'tavily', 'searxng', 'whoogle']]] = None,
+    max_results: int = 10,
+    verbose: bool = True
+) -> ChainedWebSearchProvider:
+    """
+    Factory method for creating a chained web search provider.
+    
+    Args:
+        provider_chain: List of provider names in order of preference
+        max_results: Maximum number of results to return
+        verbose: Whether to print status messages
+        
+    Returns:
+        ChainedWebSearchProvider instance
+    """
+    return ChainedWebSearchProvider(
+        provider_chain=provider_chain,
+        max_results=max_results,
+        verbose=verbose
+    ) 
+
 if __name__ == "__main__":
     # load_dotenv()
 
-    provider = WhoogleProvider()
+    # provider = get_ws_provider('duckduckgo')
+    chained_provider = get_chained_search_provider()
 
-    print(provider.search("Moon landing"))
-
+    print(chained_provider.search("Green energy"))
