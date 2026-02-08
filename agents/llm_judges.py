@@ -26,7 +26,7 @@ T = TypeVar('T', bound=BaseModel)
 #  ===== Outcome data ====
 class OutcomeType(str, Enum):
     """Enum representing possible election outcomes"""
-    GOVERNMENT_WINS = "government_wins"
+    PROPOSITION_WINS = "government_wins"
     TIE = "tie"
     OPPOSITION_WINS = "opposition_wins"
 

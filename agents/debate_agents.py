@@ -47,7 +47,7 @@ class RotatingFallbackDebator:
         self.all_models = [
             ChatCerebras(model="llama-3.1-8b", temperature=temperature, max_tokens=max_tokens, timeout=timeout),
             ChatGroq(model="openai/gpt-oss-20b", temperature=temperature, max_tokens=max_tokens, timeout=timeout),
-            ChatGoogleGenerativeAI(model="gemini-3-flash-preview", temperature=temperature, max_output_tokens=max_tokens, timeout=timeout),
+            ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=temperature, max_output_tokens=max_tokens, timeout=timeout),
             ChatOllama(
                 base_url=connection_string,
                 model="granite4:3b",
@@ -125,7 +125,7 @@ class RotatingFallbackDebator:
             return ""
 
 class SoloDebator:
-    """Debators from one model"""
+    """Debators from one model with graceful error handling and content discovery"""
     def __init__(self, 
                  api_key: str | None = None,
                  temperature: float = 0.1,
@@ -159,6 +159,10 @@ class SoloDebator:
         ]
         
     def invoke(self, prompt: List[Dict[str, str]]):
+        """
+        Invokes the model and handles tool calls.
+        Returns content and a disclaimer if the process was interrupted"""
+        last_content = ""
         try:
             messages = prompt
             # Use a loop to handle multiple tool turns
@@ -168,15 +172,20 @@ class SoloDebator:
                     messages=messages,
                     stream=False,
                     tools=self.tools,
-                    temperature=self.temperature
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens
                 )
 
                 assistant_message = response.choices[0].message
                 messages.append(assistant_message)
 
+                # update last known content is available
+                if assistant_message.content:
+                    last_content = assistant_message.content
+
                 # If there are no tool calls, this is the final answer
                 if not assistant_message.tool_calls:
-                    return assistant_message.content or ""
+                    return last_content
 
                 # Process ALL tool calls generated in this turn
                 for tool_call in assistant_message.tool_calls:
@@ -185,7 +194,7 @@ class SoloDebator:
                     
                     if function_name == "perform_web_search":
                         query = arguments.get("query")
-                        print(f"Executing search for: {query}")
+                        logger.info(f"Executing search for: {query}")
                         result = perform_web_search(query)
                         
                         # Append the tool result
@@ -195,11 +204,15 @@ class SoloDebator:
                             "content": str(result)
                         })
 
-            return "Error: Maximum tool call depth reached."
+            # Turn limit reached
+            warning = "\n\n[Disclaimer: The maximum tool calling depth was reached. This response might be incomplete]"
+            return last_content + warning
 
         except Exception as e:
             logger.error(f"Model API requests error: {e}")
-            return ""
+            # return whatever we gathered so far
+            warning = f"\n\n[Disclaimer: An error occurred during invoke ({type(e).__name__})."
+            return (last_content if last_content else "No response") + warning
 
 if __name__ == "__main__":
     llm = RotatingFallbackDebator()
