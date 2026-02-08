@@ -15,3 +15,6 @@ config.py
 
 # some other personal notes
 design_choice.md
+
+# json artifacts
+debate_results*.json
