@@ -1,9 +1,5 @@
 """LLM as judge on which side win
-The structured output: 
-{
-    "outcome": Enum
-    "reason": str
-}"""
+"""
 import os
 import sys
 
@@ -12,12 +8,15 @@ from pydantic import BaseModel, Field, ValidationError
 from enum import Enum
 from ollama import ChatResponse, Client
 import json
+from pathlib import Path
 
 # Ensure the project root is on `sys.path` so imports like `from config import ...`
 # work when this script is run as a module or from different working directories.
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
+
+PROJECT_ROOT = Path(__file__).parent.parent.resolve() 
 
 from config import SERVER_IP_ADDRESS, OLLAMA_PORT
 
@@ -70,9 +69,11 @@ class OllamaEvaluator:
         self.default_think = think
         self.default_options = default_options
         if not system_prompt:
-            # load from json file
-            # for now, empty string
-            self.system_prompt = ""
+            system_ins_path = PROJECT_ROOT / "prompts" / "system_instructions.json"
+            with open(system_ins_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            self.system_prompt = data.get("llm_judge", "")
 
         connection_string = "http://" + self.host_ip + ":" + str(self.port)
         self.client = Client(host=connection_string)
@@ -161,6 +162,11 @@ if __name__ == "__main__":
     # print(f"Outcome: {election_result.outcome.value}")
     # print(f"Reason: {election_result.reason}")
 
-    from pathlib import Path
+    # from pathlib import Path
 
-    print(Path(__file__).parent.parent.resolve() / "prompts" / "system_instructions.json")
+    # print(Path(__file__).parent.parent.resolve() / "prompts" / "system_instructions.json")
+    system_ins_path = PROJECT_ROOT / "prompts" / "system_instructions.json"
+    with open(system_ins_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    print(data.get("llm_judge", ""))
