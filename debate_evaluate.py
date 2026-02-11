@@ -226,4 +226,103 @@ Decide which side wins this particular exchange, or it is a tie. Provide your ju
 
     def save_markdown_report(self, results: Dict, filename: Optional[str] = None):
         """save evaluation results as markdown report"""
-        
+        if not filename:
+            topic_slug = results["topic"][:50].replace(" ", "_").lower()
+            filename = f"evaluation_{topic_slug}.md"
+
+        filepath = self.output_dir / filename
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write("# Debate evaluation report\n\n")
+            f.write(f"**Topic**: {results['topic']}\n\n")
+            f.write(f"**Evaluated:** {results['evaluated_at']}\n\n")
+            
+            # summary statistics
+            # Summary statistics
+            f.write("## Summary Statistics\n\n")
+            stats = results['statistics']
+            f.write(f"- **Total Pairs Evaluated:** {results['total_pairs']}\n")
+            f.write(f"- **Proposition Wins:** {stats['proposition_wins']}\n")
+            f.write(f"- **Opposition Wins:** {stats['opposition_wins']}\n")
+            f.write(f"- **Ties:** {stats['ties']}\n")
+            f.write(f"- **Errors:** {stats['errors']}\n\n")
+
+            # Win percentages
+            total_valid = stats['proposition_wins'] + stats['opposition_wins'] + stats['ties']
+            if total_valid > 0:
+                prop_pct = (stats['proposition_wins'] / total_valid) * 100
+                opp_pct = (stats['opposition_wins'] / total_valid) * 100
+                tie_pct = (stats['ties'] / total_valid) * 100
+                
+                f.write("### Win Rates\n\n")
+                f.write(f"- **Proposition:** {prop_pct:.1f}%\n")
+                f.write(f"- **Opposition:** {opp_pct:.1f}%\n")
+                f.write(f"- **Ties:** {tie_pct:.1f}%\n\n")
+
+            # detailed results
+            f.write(f"## Detailed Results\n\n")
+
+            for result in results['results']:
+                pair_idx = result['pair_index']
+                question = result['questions']
+                proposition_response = result.get('proposition_response', 'No response available')
+                opposition_response = result.get('opposition_response', 'No response available')
+                eval_data = result['evaluation']
+                outcome = eval_data.get('outcome', 'unknown')
+                reason = eval_data.get('reason', 'No reason provided')
+
+                # outcome emoji
+                if outcome == OutcomeType.PROPOSITION_WINS.value:
+                    outcome_display = "🟢 Proposition Wins"
+                elif outcome == OutcomeType.OPPOSITION_WINS.value:
+                    outcome_display = "🔴 Opposition Wins"
+                elif outcome == OutcomeType.TIE.value:
+                    outcome_display = "🟡 Tie"
+                else:
+                    outcome_display = "⚠️ Error"
+
+                f.write(f"### Pair {pair_idx}: {outcome_display}\n\n")
+                f.write(f"**Question:** {question}\n\n")
+                
+                # Proposition Response
+                f.write("#### 🔵 Proposition Response\n\n")
+                f.write(f"{proposition_response}\n\n")
+                
+                # Opposition Response
+                f.write("#### 🔴 Opposition Response\n\n")
+                f.write(f"{opposition_response}\n\n")
+                
+                # Evaluation
+                f.write("#### ⚖️ Judge's Evaluation\n\n")
+                f.write(f"**Decision:** {outcome_display}\n\n")
+                f.write("**Reasoning:**\n\n")
+                f.write(f"{reason}\n\n")
+                f.write("---\n\n")
+
+        print(f"Markdown report saved to: {filepath}")
+        return filepath
+    
+async def main():
+    """Main execution function"""
+    evaluator = DebateEvaluator(
+        evaluator_model="qwen3:4b",
+        output_dir="./evaluation_results"
+    )
+
+    # example: evaluate a specific topic
+    topic = "The house believes that social media algorithms should be regulated as public utilities."
+
+    results = await evaluator.evaluate_topic(
+        topic=topic,
+        update_db=True
+    )
+
+    # save reports
+    if "error" not in results:
+        evaluator.save_markdown_report(results)
+        print("\nEvaluation complete")
+    else:
+        print(f"\nError: {results['error']}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
