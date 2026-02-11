@@ -18,3 +18,6 @@ design_choice.md
 
 # json artifacts
 debate_results*.json
+
+# evaluation outcomes
+/evaluation_results
