@@ -124,7 +124,7 @@ async def main():
     # print(stats)
     topic = 'The house believes that social media algorithms should be regulated as public utilities.'
     debate_pairs = await query_tool.get_debates_by_topic(topic=topic)
-    print(debate_pairs)
+    print(len(debate_pairs))
 
 if __name__ == "__main__":
     asyncio.run(main())
