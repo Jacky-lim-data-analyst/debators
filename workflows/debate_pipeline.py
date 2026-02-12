@@ -97,9 +97,11 @@ Please provide a comprehensive answer to this question from the {role} perspecti
     
     @staticmethod
     async def _save_json(data, path):
-        await asyncio.to_thread(
-            lambda: open(path, 'w', encoding='utf-8').write(json.dumps(data, ensure_ascii=False))
-        )
+        def write_file():
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        await asyncio.to_thread(write_file)
     
     async def process_question_pair(
         self,
